@@ -2,18 +2,13 @@ import asyncio, os, database, translator, voice_engine, archiver, file_reader, c
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
 bot = Bot(token=config.BOT_TOKEN)
 dp = Dispatcher()
 user_data = {}
 
-class Form(StatesGroup):
-    wait_pause = State()
-
-# КЛАВИАТУРЫ (Оставляем как в твоем исходнике)
+# КЛАВИАТУРЫ
 def kb_modes():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎧 Обычная озвучка", callback_data="m_norm"),
@@ -83,7 +78,6 @@ async def finalize(c: types.CallbackQuery):
     if uid not in user_data: return
     data = user_data[uid]
     
-    # Пункт 1 и 3: Смайлик и текст (удаляются потом)
     wait_msg = await c.message.answer("⏳ Обработка...")
     await c.message.delete()
     
@@ -98,54 +92,56 @@ async def finalize(c: types.CallbackQuery):
         status = ""
         trans_res = ""
 
-        # ЛОГИКА БЛОКА 1
         if data['mode'] == 'norm':
-            if 'lang_choice' in data: # Был смешанный текст
+            if 'lang_choice' in data: # СМЕШАННЫЙ ТЕКСТ (Блок 1)
                 choice = data['lang_choice']
                 if choice == 'mix':
                     status = "RU-EN"
                     audio = await voice_engine.generate_mixed(data['text'], gender)
                 else:
-                    # ПУНКТ ПРО АКЦЕНТ: Переводим всё на выбранный язык
+                    # ВОТ ТУТ ИСПРАВЛЕНИЕ: Переводим ВЕСЬ текст целиком
                     status = choice.upper()
                     trans_res = translator.translate_text(data['text'], choice)
                     audio = await voice_engine.get_seg(trans_res, f"{choice}_{gender}")
                     is_tr = True
-            else: # Обычный текст (4 кнопки)
+            else: # ОБЫЧНЫЙ ТЕКСТ (4 кнопки)
                 v_key = c.data.replace("f_", "")
-                target = v_key.split("_")[0]
-                status = target.upper()
-                # Если язык текста не совпадает с голосом — переводим
-                if (target == 'ru' and not translator.is_russian(data['text'])) or \
-                   (target == 'en' and translator.is_russian(data['text'])):
-                    trans_res = translator.translate_text(data['text'], target)
+                target_lang = v_key.split("_")[0]
+                status = target_lang.upper()
+                
+                # Если текст на одном языке, а выбрали кнопку другого — переводим
+                if (target_lang == 'ru' and not translator.is_russian(data['text'])) or \
+                   (target_lang == 'en' and translator.is_russian(data['text'])):
+                    trans_res = translator.translate_text(data['text'], target_lang)
                     audio = await voice_engine.get_seg(trans_res, v_key)
                     is_tr = True
                 else:
                     audio = await voice_engine.get_seg(data['text'], v_key)
         else:
-            # РЕЖИМ СЭНДВИЧ (Baseline без изменений структуры)
+            # РЕЖИМ СЭНДВИЧ
             status = "Sandwich"
             ratio = database.get_pause(uid)
+            full_translation = []
             for line in data['text'].split('\n'):
                 if not line.strip(): continue
                 target_lang = 'en' if translator.is_russian(line) else 'ru'
                 tr = translator.translate_text(line, target_lang)
+                full_translation.append(tr)
                 s_o = await voice_engine.get_seg(line, f"{'ru' if target_lang=='en' else 'en'}_{gender}")
                 s_t = await voice_engine.get_seg(tr, f"{target_lang}_{gender}")
                 audio += voice_engine.make_sandwich(s_o, s_t, ratio)
+            trans_res = "\n".join(full_translation)
             is_tr = True 
 
         audio.export(f_audio, format="mp3")
-        await wait_msg.delete() # Удаляем "⏳ Обработка..."
+        await wait_msg.delete()
         
-        # Оформление в одну строку
         caption = f"✅Символов: {len(data['text'])},   {status}"
         await bot.send_voice(uid, FSInputFile(f_audio), caption=caption)
 
         if is_tr:
             user_data[uid]['original'] = data['text']
-            user_data[uid]['translated'] = trans_res if trans_res else "Перевод выполнен"
+            user_data[uid]['translated'] = trans_res
             kb_zip = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Да", callback_data="z_y"), 
                  InlineKeyboardButton(text="❌ Нет", callback_data="z_n")]
@@ -171,7 +167,7 @@ async def handle_zip(c: types.CallbackQuery):
 
 async def main():
     database.init_db()
-    print("🚀 Бот запущен!")
+    print("🚀 Бот запущен И ОБНОВЛЁН!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
