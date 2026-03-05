@@ -1,0 +1,6 @@
+__pycache__/
+*.mp3
+*.zip
+voice_master.db
+config.py
+tmp_*

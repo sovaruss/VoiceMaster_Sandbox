@@ -1,0 +1,9 @@
+edge-tts==6.1.1
+aiogram==3.17.0
+pydub
+deep-translator
+PyPDF2
+beautifulsoup4
+ebooklib
+python-docx
+langdetect==1.0.9
