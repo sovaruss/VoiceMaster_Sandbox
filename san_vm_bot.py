@@ -90,47 +90,47 @@ async def finalize(c: types.CallbackQuery):
         is_tr = False
         gender = c.data.split("_")[-1]
         status = ""
-        trans_res = ""
+        current_text = data['text']
 
         if data['mode'] == 'norm':
-            if 'lang_choice' in data: # СМЕШАННЫЙ ТЕКСТ (Блок 1)
+            if 'lang_choice' in data: # БЛОК 1: Смешанный текст
                 choice = data['lang_choice']
                 if choice == 'mix':
                     status = "RU-EN"
-                    audio = await voice_engine.generate_mixed(data['text'], gender)
+                    audio = await voice_engine.generate_mixed(current_text, gender)
                 else:
-                    # ВОТ ТУТ ИСПРАВЛЕНИЕ: Переводим ВЕСЬ текст целиком
                     status = choice.upper()
-                    trans_res = translator.translate_text(data['text'], choice)
-                    audio = await voice_engine.get_seg(trans_res, f"{choice}_{gender}")
+                    print(f"DEBUG: Начинаю перевод всего текста на {choice}...")
+                    current_text = translator.translate_text(current_text, choice)
+                    print(f"DEBUG: Результат перевода: {current_text}")
+                    audio = await voice_engine.get_seg(current_text, f"{choice}_{gender}")
                     is_tr = True
             else: # ОБЫЧНЫЙ ТЕКСТ (4 кнопки)
                 v_key = c.data.replace("f_", "")
                 target_lang = v_key.split("_")[0]
                 status = target_lang.upper()
                 
-                # Если текст на одном языке, а выбрали кнопку другого — переводим
-                if (target_lang == 'ru' and not translator.is_russian(data['text'])) or \
-                   (target_lang == 'en' and translator.is_russian(data['text'])):
-                    trans_res = translator.translate_text(data['text'], target_lang)
-                    audio = await voice_engine.get_seg(trans_res, v_key)
+                if (target_lang == 'ru' and not translator.is_russian(current_text)) or \
+                   (target_lang == 'en' and translator.is_russian(current_text)):
+                    current_text = translator.translate_text(current_text, target_lang)
+                    audio = await voice_engine.get_seg(current_text, v_key)
                     is_tr = True
                 else:
-                    audio = await voice_engine.get_seg(data['text'], v_key)
+                    audio = await voice_engine.get_seg(current_text, v_key)
         else:
             # РЕЖИМ СЭНДВИЧ
             status = "Sandwich"
             ratio = database.get_pause(uid)
-            full_translation = []
-            for line in data['text'].split('\n'):
+            lines_tr = []
+            for line in current_text.split('\n'):
                 if not line.strip(): continue
-                target_lang = 'en' if translator.is_russian(line) else 'ru'
-                tr = translator.translate_text(line, target_lang)
-                full_translation.append(tr)
-                s_o = await voice_engine.get_seg(line, f"{'ru' if target_lang=='en' else 'en'}_{gender}")
-                s_t = await voice_engine.get_seg(tr, f"{target_lang}_{gender}")
+                t_lang = 'en' if translator.is_russian(line) else 'ru'
+                tr = translator.translate_text(line, t_lang)
+                lines_tr.append(tr)
+                s_o = await voice_engine.get_seg(line, f"{'ru' if t_lang=='en' else 'en'}_{gender}")
+                s_t = await voice_engine.get_seg(tr, f"{t_lang}_{gender}")
                 audio += voice_engine.make_sandwich(s_o, s_t, ratio)
-            trans_res = "\n".join(full_translation)
+            current_text = "\n".join(lines_tr)
             is_tr = True 
 
         audio.export(f_audio, format="mp3")
@@ -141,17 +141,17 @@ async def finalize(c: types.CallbackQuery):
 
         if is_tr:
             user_data[uid]['original'] = data['text']
-            user_data[uid]['translated'] = trans_res
+            user_data[uid]['translated'] = current_text
             kb_zip = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Да", callback_data="z_y"), 
                  InlineKeyboardButton(text="❌ Нет", callback_data="z_n")]
             ])
             await bot.send_message(uid, "📦 Создать ZIP с переводом?", reply_markup=kb_zip)
         else:
-            del user_data[uid]
+            if uid in user_data: del user_data[uid]
 
     except Exception as e: 
-        print(f"Error: {e}")
+        print(f"Ошибка в finalize: {e}")
     finally:
         if os.path.exists(f_audio): os.remove(f_audio)
 
@@ -167,7 +167,7 @@ async def handle_zip(c: types.CallbackQuery):
 
 async def main():
     database.init_db()
-    print("🚀 Бот запущен И ОБНОВЛЁН!")
+    print("🚀 БОТ ЗАПУЩЕН И ГОТОВ К ТЕСТАМ!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
