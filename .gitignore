@@ -4,3 +4,4 @@ __pycache__/
 voice_master.db
 config.py
 tmp_*
+ffmpeg.exe
